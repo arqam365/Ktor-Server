@@ -1,6 +1,7 @@
 package example.com
 
 import example.com.plugins.*
+import example.com.plugins.configureSerialization
 import io.ktor.server.application.*
 
 fun main(args: Array<String>) {
@@ -8,5 +9,6 @@ fun main(args: Array<String>) {
 }
 
 fun Application.module() {
+    configureSerialization()
     configureRouting()
 }

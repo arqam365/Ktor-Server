@@ -3,8 +3,8 @@ package example.com.plugins
 import example.com.model.Priority
 import example.com.model.Task
 import example.com.model.TaskRepository
-import example.com.model.tasksAsTable
 import io.ktor.http.*
+import io.ktor.serialization.*
 import io.ktor.server.application.*
 import io.ktor.server.http.content.*
 import io.ktor.server.request.*
@@ -13,17 +13,13 @@ import io.ktor.server.routing.*
 
 fun Application.configureRouting() {
     routing {
+        staticResources("static", "static")
 
-        staticResources("/task-ui", "task-ui")
-
+        //updated implementation
         route("/tasks") {
-
-            get{
+            get {
                 val tasks = TaskRepository.allTasks()
-                call.respondText(
-                    contentType = ContentType.parse("text/html"),
-                    text = tasks.tasksAsTable()
-                )
+                call.respond(tasks)
             }
 
             get("/byName/{taskName}") {
@@ -38,20 +34,15 @@ fun Application.configureRouting() {
                     call.respond(HttpStatusCode.NotFound)
                     return@get
                 }
-
-                call.respondText(
-                    contentType = ContentType.parse("text/html"),
-                    text = listOf(task).tasksAsTable()
-                )
+                call.respond(task)
             }
-            
+
             get("/byPriority/{priority}") {
                 val priorityAsText = call.parameters["priority"]
                 if (priorityAsText == null) {
                     call.respond(HttpStatusCode.BadRequest)
                     return@get
                 }
-
                 try {
                     val priority = Priority.valueOf(priorityAsText)
                     val tasks = TaskRepository.tasksByPriority(priority)
@@ -60,49 +51,37 @@ fun Application.configureRouting() {
                         call.respond(HttpStatusCode.NotFound)
                         return@get
                     }
-
-                    call.respondText(
-                        contentType = ContentType.parse("text/html"),
-                        text = tasks.tasksAsTable()
-                    )
+                    call.respond(tasks)
                 } catch (ex: IllegalArgumentException) {
                     call.respond(HttpStatusCode.BadRequest)
                 }
             }
 
-            post{
-                val formContent = call.receiveParameters()
-
-                val params = Triple(
-                    formContent["name"] ?: "",
-                    formContent["description"] ?: "",
-                    formContent["priority"] ?: ""
-                )
-
-                if (params.toList().any { it.isEmpty() }) {
-                    call.respond(HttpStatusCode.BadRequest)
-                    return@post
-                }
-
+            post {
                 try {
-                    val priority = Priority.valueOf(params.third)
-                    TaskRepository.addTask(
-                        Task(
-                            params.first,
-                            params.second,
-                            priority
-                        )
-                    )
-
+                    val task = call.receive<Task>()
+                    TaskRepository.addTask(task)
                     call.respond(HttpStatusCode.NoContent)
-                } catch (ex: IllegalArgumentException) {
-                    call.respond(HttpStatusCode.BadRequest)
                 } catch (ex: IllegalStateException) {
                     call.respond(HttpStatusCode.BadRequest)
+                } catch (ex: JsonConvertException) {
+                    call.respond(HttpStatusCode.BadRequest)
                 }
             }
 
-        }
+            delete("/{taskName}") {
+                val name = call.parameters["taskName"]
+                if (name == null) {
+                    call.respond(HttpStatusCode.BadRequest)
+                    return@delete
+                }
 
+                if (TaskRepository.removeTask(name)) {
+                    call.respond(HttpStatusCode.NoContent)
+                } else {
+                    call.respond(HttpStatusCode.NotFound)
+                }
+            }
+        }
     }
 }
