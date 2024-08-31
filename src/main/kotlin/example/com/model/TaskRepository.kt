@@ -1,4 +1,7 @@
-package example.com.model
+package model
+
+import example.com.model.Priority
+import example.com.model.Task
 
 object TaskRepository {
     private val tasks = mutableListOf(
@@ -28,5 +31,4 @@ object TaskRepository {
     fun removeTask(name: String): Boolean {
         return tasks.removeIf { it.name == name }
     }
-
 }

@@ -1,71 +1,65 @@
+package com.example
+
+import example.com.plugins.configureRouting
+import example.com.plugins.configureSerialization
+import example.com.plugins.configureSockets
+import io.ktor.client.plugins.websocket.*
+import io.ktor.serialization.*
+import io.ktor.serialization.kotlinx.*
+import io.ktor.serialization.kotlinx.json.*
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.testing.*
+import kotlinx.coroutines.flow.*
+import kotlinx.serialization.json.Json
 import example.com.model.Priority
 import example.com.model.Task
-import io.ktor.client.call.*
-import io.ktor.client.plugins.contentnegotiation.*
-import io.ktor.client.request.*
-import io.ktor.http.*
-import io.ktor.serialization.kotlinx.json.*
-import io.ktor.server.testing.*
 import kotlin.test.*
 
 class ApplicationTest {
     @Test
-    fun tasksCanBeFoundByPriority() = testApplication {
+    fun testRoot() = testApplication {
+        application {
+            configureRouting()
+            configureSerialization()
+            configureSockets()
+        }
+
         val client = createClient {
-            install(ContentNegotiation) {
-                json()
+            install(ContentNegotiation) { //Error related to client install
+                json(Json { ignoreUnknownKeys = true })
+            }
+            install(WebSockets) {
+                contentConverter =
+                    KotlinxWebsocketSerializationConverter(Json)
             }
         }
 
-        val response = client.get("/tasks/byPriority/Medium")
-        val results = response.body<List<Task>>()
+        val expectedTasks = listOf(
+            Task("cleaning", "Clean the house", Priority.Low),
+            Task("gardening", "Mow the lawn", Priority.Medium),
+            Task("shopping", "Buy the groceries", Priority.High),
+            Task("painting", "Paint the fence", Priority.Medium)
+        )
+        var actualTasks = emptyList<Task>()
 
-        assertEquals(HttpStatusCode.OK, response.status)
-
-        val expectedTaskNames = listOf("gardening", "painting")
-        val actualTaskNames = results.map(Task::name)
-        assertContentEquals(expectedTaskNames, actualTaskNames)
-    }
-
-    @Test
-    fun invalidPriorityProduces400() = testApplication {
-        val response = client.get("/tasks/byPriority/Invalid")
-        assertEquals(HttpStatusCode.BadRequest, response.status)
-    }
-
-
-    @Test
-    fun unusedPriorityProduces404() = testApplication {
-        val response = client.get("/tasks/byPriority/Vital")
-        assertEquals(HttpStatusCode.NotFound, response.status)
-    }
-
-    @Test
-    fun newTasksCanBeAdded() = testApplication {
-        val client = createClient {
-            install(ContentNegotiation) {
-                json()
+        client.webSocket("/tasks") {
+            consumeTasksAsFlow().collect { allTasks ->
+                actualTasks = allTasks
             }
         }
 
-        val task = Task("swimming", "Go to the beach", Priority.Low)
-        val response1 = client.post("/tasks") {
-            header(
-                HttpHeaders.ContentType,
-                ContentType.Application.Json
-            )
-
-            setBody(task)
+        assertEquals(expectedTasks.size, actualTasks.size)
+        expectedTasks.forEachIndexed { index, task ->
+            assertEquals(task, actualTasks[index])
         }
-        assertEquals(HttpStatusCode.NoContent, response1.status)
-
-        val response2 = client.get("/tasks")
-        assertEquals(HttpStatusCode.OK, response2.status)
-
-        val taskNames = response2
-            .body<List<Task>>()
-            .map { it.name }
-
-        assertContains(taskNames, "swimming")
     }
+
+    private fun DefaultClientWebSocketSession.consumeTasksAsFlow() = incoming
+        .consumeAsFlow()
+        .map {
+            converter!!.deserialize<Task>(it)
+        }
+        .scan(emptyList<Task>()) { list, task ->
+            list + task
+        }
 }
